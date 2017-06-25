@@ -7,7 +7,7 @@ __pycache__/
 *.so
 
 *secret*
-
+.DS_Store
 # Distribution / packaging
 .Python
 env/
