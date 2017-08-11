@@ -16,9 +16,9 @@ class Graph(QGraphicsView):
 		self.resize(700, 300)
 
 		self._textSize = 12
-		self._contentMarginLeft = 12
+		self._contentMarginLeft = 25
 		self._contentMarginTop = 12
-		self._contentMarginRight = 12
+		self._contentMarginRight = 55
 		self._contentMarginBottom = 12
 
 		self._graphBoundX = 20
@@ -36,9 +36,6 @@ class Graph(QGraphicsView):
 		self.x_values = [i[0] for i in self.values]
 		self.y_values = [i[1] for i in self.values]
 
-		# self.layout = QVBoxLayout(self)
-
-		# self.view = QGraphicsView(self)
 		self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
 		self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
 
@@ -46,37 +43,33 @@ class Graph(QGraphicsView):
 		self.scene.setBackgroundBrush(QBrush(QColor('#3F3F3F')))
 		self.scene.setSceneRect(self.rect())
 
-		# self.line1 = Line(self, 0.0, 0.0, self.width(), self.height())
-		# self.scene.addItem(self.line1)
-
 		self.rect_item = QGraphicsRectItem(	self._contentMarginLeft,
 										self._contentMarginTop,
 										self.width() - (self._contentMarginRight + self._contentMarginLeft),
 										self.height() - (self._contentMarginBottom + self._contentMarginTop))
 
-		self.rect_item.setPen(QPen(QColor('#4C4C4C')))
-		self.scene.addItem(self.rect_item)
-
 		self.graphOrigin = QPointF(	self._contentMarginLeft + self._graphBoundX,
 									self.height() - (self._contentMarginBottom + self._graphBoundY))
 
-		self.xAxis = Axis(self, 0, 10)
+		start = datetime.datetime(2017, 8, 1)
+		end = datetime.datetime(2017, 8, 31)
+
+		self.xAxis = Axis(self, start, end)
 		self.scene.addItem(self.xAxis)
+		self.xAxis.cursorLine.glow()
 
 		self.yAxis = Axis(self, 0, 100, direction=Axis.VERTICAL)
 		self.scene.addItem(self.yAxis)
+		self.yAxis.cursorLine.glow()
 
 		self.setScene(self.scene)
+		self.setMouseTracking(True)
 
 	def resizeEvent(self, event):
 		self.updateGraphSize()
 
 	def updateGraphSize(self):
 		self.scene.setSceneRect(self.rect())
-		self.rect_item.setRect(	self._contentMarginLeft,
-							self._contentMarginTop,
-							self.width() - (self._contentMarginRight + self._contentMarginLeft),
-							self.height() - (self._contentMarginBottom + self._contentMarginTop))
 
 		self.graphOrigin.setX(self._contentMarginLeft + self._graphBoundX)
 		self.graphOrigin.setY(self.height() - (self._contentMarginBottom + self._graphBoundY))
@@ -84,7 +77,28 @@ class Graph(QGraphicsView):
 		self.xAxis.update()
 		self.yAxis.update()
 
+	def mouseMoveEvent(self, event):
+		x = event.pos().x()
+		y = event.pos().y()
 
+		min_x = self.graphOrigin.x() + self._graphOffsetX
+		max_x = self.width() - self._contentMarginRight
+		min_y = self._contentMarginTop
+		max_y = self.height() - (self._contentMarginBottom + self._graphOffsetY + self._graphBoundY)
+		if min_x < x < max_x and min_y < y < max_y:
+			self.xAxis.setCursorPos(event.pos())
+			self.yAxis.setCursorPos(event.pos())
+		else:
+			self.xAxis.setCursorPos(None)
+			self.yAxis.setCursorPos(None)
+
+	def enterEvent(self, event):
+		self.xAxis.setCursorPos(None)
+		self.yAxis.setCursorPos(None)
+
+	def leaveEvent(self, event):
+		self.xAxis.setCursorPos(None)
+		self.yAxis.setCursorPos(None)
 
 
 class Line(QGraphicsLineItem):
@@ -130,23 +144,26 @@ class Axis(QGraphicsLineItem):
 		self._start_value = start_value
 		self._end_value = end_value
 		self._view = parent
+		self._float_format = '%.02f'
+		self._datetime_fmt = "%d/%m %H:%M"
 
 		self._set_data_type()
 
 		# Default values
-		self._divisionLenght = 10
+		self._divisionLength = 10
 		self._divisionType = self.FIXED
-		self._maxDivisions = 10
-		self._minDivisionSpace = 20
+		self._maxDivisions = 30
+		self._minDivisionSpace = 0
 		self._divisionOffset = 3
 
 		self.showSubdivision = True
 		self._subDivisionLength = 5
+		self._minSubDivisionSpace = 2
 
 		if self._data_type == self.DATETIME:
 			self._subdivisionAmount = 4
 		else:
-			self._subdivisionAmount = 10
+			self._subdivisionAmount = 5
 
 		self._divisions = []
 		self._subDivisions = []
@@ -155,21 +172,38 @@ class Axis(QGraphicsLineItem):
 		y1 = self._view.graphOrigin.y()
 
 		if direction == self.HORIZONTAL:
-			divisionLine = QLineF(0, self._divisionOffset, 0, -self._divisionLenght + self._divisionOffset)
+			divisionLine = QLineF(0, self._divisionOffset, 0, -self._divisionLength + self._divisionOffset)
+			cursorLine = QLineF(0, 0, self._view.width(), 0)
 		else:
-			divisionLine = QLineF(-self._divisionOffset, 0, self._divisionLenght - self._divisionOffset, 0)
+			divisionLine = QLineF(-self._divisionOffset, 0, self._divisionLength - self._divisionOffset, 0)
+			cursorLine = QLineF(0, 0, 0, self._view.height())
 
-		self.startLine = DivisionLine(divisionLine.translated(x1, y1), parent=self, scene=self.scene())
-		self.startLine.setText(str(self._start_value))
-		self.endLine = DivisionLine(divisionLine.translated(x1, y1), parent=self, scene=self.scene())
-		self.endLine.setText(str(self._end_value))
+		if self._data_type in [self.INTEGER, self.FLOAT]:
+			startLineText = str(self._start_value)
+			endLineText = str(self._end_value)
+		else:
+			startLineText = self._start_value.strftime(self._datetime_fmt)
+			endLineText = self._end_value.strftime(self._datetime_fmt)
+
+		self.startLine = DivisionLine(divisionLine, parent=self, scene=self.scene())
+		self.startLine.setPos(x1, y1)
+		self.startLine.setText(startLineText)
+		self.startLine.setColor(self.pen().color())
+		self.endLine = DivisionLine(divisionLine, parent=self, scene=self.scene())
+		self.endLine.setPos(x1, y1)
+		self.endLine.setText(endLineText)
+		self.endLine.setColor(self.pen().color())
+
+		self.cursorLine = DivisionLine(cursorLine, parent=self, scene=self.scene())
+		self.cursorLine.setColor(QColor('#48A7FF'))
+		self.cursorLine.setVisible(False)
 
 		self.update()
 
 	def _set_data_type(self):
 		# Check if both start and end values are datetime.datetime objects
 		if isinstance(self._start_value, datetime.datetime) or isinstance(self._end_value, datetime.datetime):
-			if type(start_value) == type(end_value):
+			if type(self._start_value) == type(self._end_value):
 				self._data_type = self.DATETIME
 			else:
 				raise TypeError("Both start_value and end_value needs to be a datetime.datetime object.")
@@ -197,23 +231,44 @@ class Axis(QGraphicsLineItem):
 			x2 = x1 + (length)
 			y2 = y1
 			graphLength = length - self._view._graphOffsetX
+			self.cursorLine.setLine(x1, 0, x2, 0)
 
 		else:
 			x2 = x1
 			y2 = self._view._contentMarginTop
 			graphLength = y1 - (y2 + self._view._graphOffsetY)
+			self.cursorLine.setLine(0, y1, 0, y2)
 
 		self.setLine(x1, y1, x2, y2)
 
 		# Calculate the divisions
-		max_fittable_divisions = int(float(graphLength) / self._minDivisionSpace)
+		# Calculate the minimal division space
+		fmStart = self.startLine.fontMetrics()
+		fmEnd = self.startLine.fontMetrics()
+
+		if self._direction == self.HORIZONTAL:
+			minDivisionSpace = max([fmStart.width(self.divisionText(self._start_value, None, True)) + 15,
+									fmEnd.width(self.divisionText(self._end_value, None, True)) + 15,
+									self._minDivisionSpace])
+		else:
+			minDivisionSpace = max([fmStart.height() + 15,
+									fmEnd.height() + 15,
+									self._minDivisionSpace])
+
+		max_fittable_divisions = int(float(graphLength) / minDivisionSpace)
 
 		if self._maxDivisions >= 0:
 			divisions = min(max_fittable_divisions, self._maxDivisions)
 		else:
 			divisions = max_fittable_divisions
 
-		division_space = graphLength / divisions
+		division_space = graphLength / max(1, divisions)
+
+		# Calculate the subdivisions
+		max_fittable_subdivisions  = int(float(division_space) / self._minSubDivisionSpace)
+		subDivisions = min(max_fittable_subdivisions, self._subdivisionAmount)
+
+		subdivision_space = division_space / max(1, subDivisions)
 
 		for i in self._divisions:
 			i.scene().removeItem(i)
@@ -221,27 +276,77 @@ class Axis(QGraphicsLineItem):
 
 		self._divisions = []
 
-		# Use .setPos inplaats van setLine voor goede positionering met parenting
-
 		# Draw the divisions
 		if self._direction == self.HORIZONTAL:
-			divisionLine = QLineF(0, self._divisionOffset, 0, -self._divisionLenght + self._divisionOffset)
-			self.startLine.setLine(divisionLine.translated(x1 + self._view._graphOffsetX, y1))
-			self.endLine.setLine(divisionLine.translated(x1 + self._view._graphOffsetX + graphLength, y1))
+			divisionLine = QLineF(0, self._divisionOffset, 0, -self._divisionLength + self._divisionOffset)
+			subDivisionLine = QLineF(0, 0, 0, -self._subDivisionLength)
+
+			self.addSubdivisions(subDivisionLine, QPointF(x1 + self._view._graphOffsetX, y1), subDivisions, subdivision_space)
+
+			self.startLine.setPos(x1 + self._view._graphOffsetX, y1)
+			self.endLine.setPos(x1 + self._view._graphOffsetX + graphLength, y1)
 
 			for n in xrange(max(0, divisions - 1)):
 				p = QPointF(x1 + self._view._graphOffsetX + ((n + 1) * division_space), y2)
-				line = DivisionLine(divisionLine.translated(p), parent=self, scene=self.scene())
-				self._divisions.append(line)
+				self.addDivision(divisionLine, p, self.divisionText(n + 1, divisions))
+				self.addSubdivisions(subDivisionLine, p, subDivisions, subdivision_space)
 
 		else:
-			divisionLine = QLineF(-self._divisionOffset, 0, self._divisionLenght - self._divisionOffset, 0)
-			self.startLine.setLine(divisionLine.translated(x1, y1 - self._view._graphOffsetY))
-			self.endLine.setLine(divisionLine.translated(x1, y1 - self._view._graphOffsetY))
+			divisionLine = QLineF(-self._divisionOffset, 0, self._divisionLength - self._divisionOffset, 0)
+			subDivisionLine = QLineF(0, 0, self._subDivisionLength, 0)
+
+			self.startLine.setPos(x1, y1 - self._view._graphOffsetY)
+			self.endLine.setPos(x1, y1 - (self._view._graphOffsetY + graphLength))
+
+			self.addSubdivisions(subDivisionLine, QPointF(x1, y1 - self._view._graphOffsetY), subDivisions, subdivision_space)
+
 			for n in xrange(max(0, divisions - 1)):
 				p = QPointF(x1, y1 - (self._view._graphOffsetY + ((n + 1) * division_space)))
-				line = DivisionLine(divisionLine.translated(p), parent=self, scene=self.scene())
-				self._divisions.append(line)
+				self.addDivision(divisionLine, p, self.divisionText(n + 1, divisions))
+				self.addSubdivisions(subDivisionLine, p, subDivisions, subdivision_space)
+
+	def addDivision(self, line, p, text=None):
+		line = DivisionLine(line, parent=self, scene=self.scene())
+		line.setPos(p)
+		line.setColor(self.pen().color())
+		line.setText(text)
+		self._divisions.append(line)
+
+	def addSubdivisions(self, line, p, subdivisions, space):
+		if self._direction == self.HORIZONTAL:
+			for n in xrange(max(0, subdivisions - 1)):
+				self.addDivision(line, QPointF(p.x() + ((n + 1) * space), p.y()))
+		else:
+			for n in xrange(max(0, subdivisions - 1)):
+				self.addDivision(line, QPointF(p.x(), p.y() - ((n + 1) * space)))
+
+	def divisionText(self, n, divisions, maxlength=False):
+		total = self._end_value - self._start_value
+		if self._data_type in [self.INTEGER, self.FLOAT]:
+			val = ((float(n) / float(divisions)) * total) + self._start_value
+			if not maxlength:
+				return (self._float_format % val).rstrip('0').rstrip('.')
+			else:
+				return self._float_format % val
+
+		else:
+			if not maxlength:
+				val = datetime.timedelta(seconds=((float(n) / float(divisions)) * total.total_seconds())) + self._start_value
+			else:
+				val = datetime.datetime.now()
+
+			return val.strftime(self._datetime_fmt)
+
+	def setCursorPos(self, pos):
+		if pos is not None:
+			self.cursorLine.setVisible(True)
+			if self._direction == self.HORIZONTAL:
+				self.cursorLine.setPos(self.cursorLine.pos().x(), pos.y())
+			else:
+				self.cursorLine.setPos(pos.x(), self.cursorLine.pos().y())
+		else:
+			self.cursorLine.setVisible(False)
+
 
 class Particle(QGraphicsEllipseItem):
 	def __init__(self, p, radius, parent=None, scene=None):
@@ -267,14 +372,25 @@ class Particle(QGraphicsEllipseItem):
 
 
 class DivisionLine(QGraphicsLineItem):
+	# Direction
+	HORIZONTAL = 1
+	VERTICAL = 2
+
 	def __init__(self, *args, **kwargs):
 		super(DivisionLine, self).__init__(*args, **kwargs)
 		self.text = ''
 		self.textItem = None
+		self.textOffset = 5
+		self.detectDirection()
 
 	def setLine(self, *args, **kwargs):
 		super(DivisionLine, self).setLine(*args, **kwargs)
-		self.text.setPos(self.pos())
+		self.detectDirection()
+
+	def setColor(self, color):
+		self.setPen(QPen(color))
+		if self.text:
+			self.text.setBrush(QBrush(color))
 
 	def setText(self, text):
 		if self.textItem is not None:
@@ -283,10 +399,37 @@ class DivisionLine(QGraphicsLineItem):
 
 		if text:
 			self.text = QGraphicsSimpleTextItem(text, parent=self)
-			self.text.setPos(self.pos())
+			self.text.setBrush(QBrush(self.pen().color()))
+			self.setTextAlignment(Qt.AlignCenter)
 		else:
 			self.text = None
-		
+
+	def setTextAlignment(self, align):
+		rect = self.text.sceneBoundingRect()
+		if align == Qt.AlignCenter:
+			if self.direction == self.HORIZONTAL:
+				self.text.setPos(-(rect.width() + self.textOffset) + self.line().x1(), -rect.height() / 2.0)
+			else:
+				self.text.setPos(-rect.width() / 2.0, self.line().y1() + self.textOffset)
+
+	def fontMetrics(self):
+		if self.text:
+			return QFontMetrics(self.text.font())
+
+	def detectDirection(self):
+		a = abs(self.line().angle())
+		if a < 45:
+			self.direction = self.HORIZONTAL
+		else:
+			self.direction = self.VERTICAL
+
+	def glow(self):
+		drop = QGraphicsDropShadowEffect(self.scene())
+		drop.setColor(self.pen().color())
+		drop.setOffset(0)
+		drop.setBlurRadius(15)
+
+		self.setGraphicsEffect(drop)
 
 
 
