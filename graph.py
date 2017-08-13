@@ -15,6 +15,8 @@ class Graph(QGraphicsView):
 		super(Graph, self).__init__(parent)
 		self.resize(700, 300)
 
+		# self.setCursor(Qt.CrossCursor)
+
 		self._textSize = 12
 		self._contentMarginLeft = 25
 		self._contentMarginTop = 12
@@ -56,11 +58,11 @@ class Graph(QGraphicsView):
 
 		self.xAxis = Axis(self, start, end)
 		self.scene.addItem(self.xAxis)
-		self.xAxis.cursorLine.glow()
+		# self.xAxis.cursorLine.glow()
 
 		self.yAxis = Axis(self, 0, 100, direction=Axis.VERTICAL)
 		self.scene.addItem(self.yAxis)
-		self.yAxis.cursorLine.glow()
+		# self.yAxis.cursorLine.glow()
 
 		self.setScene(self.scene)
 		self.setMouseTracking(True)
@@ -85,12 +87,14 @@ class Graph(QGraphicsView):
 		max_x = self.width() - self._contentMarginRight
 		min_y = self._contentMarginTop
 		max_y = self.height() - (self._contentMarginBottom + self._graphOffsetY + self._graphBoundY)
-		if min_x < x < max_x and min_y < y < max_y:
+		if min_x <= x <= max_x and min_y <= y <= max_y:
 			self.xAxis.setCursorPos(event.pos())
 			self.yAxis.setCursorPos(event.pos())
+			QApplication.setOverrideCursor(Qt.CrossCursor)
 		else:
 			self.xAxis.setCursorPos(None)
 			self.yAxis.setCursorPos(None)
+			QApplication.restoreOverrideCursor()
 
 	def enterEvent(self, event):
 		self.xAxis.setCursorPos(None)
@@ -99,6 +103,7 @@ class Graph(QGraphicsView):
 	def leaveEvent(self, event):
 		self.xAxis.setCursorPos(None)
 		self.yAxis.setCursorPos(None)
+		QApplication.restoreOverrideCursor()
 
 
 class Line(QGraphicsLineItem):
@@ -152,7 +157,7 @@ class Axis(QGraphicsLineItem):
 		# Default values
 		self._divisionLength = 10
 		self._divisionType = self.FIXED
-		self._maxDivisions = 30
+		self._maxDivisions = 20
 		self._minDivisionSpace = 0
 		self._divisionOffset = 3
 
@@ -165,6 +170,9 @@ class Axis(QGraphicsLineItem):
 		else:
 			self._subdivisionAmount = 5
 
+		self._cursorLength = 15
+		self._cursorOffset = self._divisionOffset
+
 		self._divisions = []
 		self._subDivisions = []
 
@@ -173,10 +181,10 @@ class Axis(QGraphicsLineItem):
 
 		if direction == self.HORIZONTAL:
 			divisionLine = QLineF(0, self._divisionOffset, 0, -self._divisionLength + self._divisionOffset)
-			cursorLine = QLineF(0, 0, self._view.width(), 0)
+			cursorLine = QLineF(0, 0, 0, -self._cursorLength)
 		else:
 			divisionLine = QLineF(-self._divisionOffset, 0, self._divisionLength - self._divisionOffset, 0)
-			cursorLine = QLineF(0, 0, 0, self._view.height())
+			cursorLine = QLineF(0, 0, self._cursorLength, 0)
 
 		if self._data_type in [self.INTEGER, self.FLOAT]:
 			startLineText = str(self._start_value)
@@ -197,6 +205,10 @@ class Axis(QGraphicsLineItem):
 		self.cursorLine = DivisionLine(cursorLine, parent=self, scene=self.scene())
 		self.cursorLine.setColor(QColor('#48A7FF'))
 		self.cursorLine.setVisible(False)
+		self.cursorLine.setZValue(1)
+		self.cursorLine.setBackdrop(QColor('black'))
+		self.cursorLine.setText('Test')
+		self.setZValue(0)
 
 		self.update()
 
@@ -231,13 +243,14 @@ class Axis(QGraphicsLineItem):
 			x2 = x1 + (length)
 			y2 = y1
 			graphLength = length - self._view._graphOffsetX
-			self.cursorLine.setLine(x1, 0, x2, 0)
+			# self.cursorLine.setLine(0, self._cursorOffset, 0, self._cursorOffset - self._cursorLength)
 
 		else:
 			x2 = x1
 			y2 = self._view._contentMarginTop
 			graphLength = y1 - (y2 + self._view._graphOffsetY)
-			self.cursorLine.setLine(0, y1, 0, y2)
+			# length = self._view.width() - (x1 + self._view._contentMarginRight)
+			# self.cursorLine.setLine(-self._cursorOffset, 0, (-self._cursorOffset) + self._cursorLength, 0)
 
 		self.setLine(x1, y1, x2, y2)
 
@@ -338,14 +351,52 @@ class Axis(QGraphicsLineItem):
 			return val.strftime(self._datetime_fmt)
 
 	def setCursorPos(self, pos):
+		x1 = self._view.graphOrigin.x()
+		y1 = self._view.graphOrigin.y()
 		if pos is not None:
+			# QApplication.setOverrideCursor(Qt.CrossCursor)
 			self.cursorLine.setVisible(True)
 			if self._direction == self.HORIZONTAL:
-				self.cursorLine.setPos(self.cursorLine.pos().x(), pos.y())
+				self.cursorLine.setPos(pos.x(), y1 + self._cursorOffset)
+				# self.cursorLine.setText(str(pos.x()))
 			else:
-				self.cursorLine.setPos(pos.x(), self.cursorLine.pos().y())
+				self.cursorLine.setPos(x1 - self._cursorOffset, pos.y())
+				# self.cursorLine.setText(str(pos.y()))
+
+			self.cursorLine.setText(self.valueToText(self.getValue(pos)))
 		else:
 			self.cursorLine.setVisible(False)
+			# QApplication.restoreOverrideCursor()
+
+	def getValue(self, pos):
+		total = self._end_value - self._start_value
+
+
+		if self._direction == self.HORIZONTAL:
+			start_pos = self._view.graphOrigin.x() + self._view._graphOffsetX
+			end_pos = self._view.width() - self._view._contentMarginRight
+			cur_pos = pos.x()
+			mult = float(cur_pos - start_pos) / float(end_pos - start_pos)
+
+		else:
+			start_pos = self._view._contentMarginTop
+			end_pos = self._view.graphOrigin.y() - self._view._graphOffsetY
+			cur_pos = pos.y()
+			mult = (1 - (float(cur_pos - start_pos) / float(end_pos - start_pos)) )
+
+		if self._data_type in [self.INTEGER, self.FLOAT]:
+			# val = (abs(float(cur_pos - start_pos) / end_pos) * total) + self._start_value
+			return (mult * total) + self._start_value
+		# 	((float(n) / float(divisions)) * total) + self._start_value
+		else:
+			return datetime.timedelta(seconds=mult * total.total_seconds()) + self._start_value
+
+	def valueToText(self, value):
+		if self._data_type in [self.INTEGER, self.FLOAT]:
+			return (self._float_format % value).rstrip('0').rstrip('.')
+
+		else:
+			return value.strftime(self._datetime_fmt)
 
 
 class Particle(QGraphicsEllipseItem):
@@ -381,6 +432,8 @@ class DivisionLine(QGraphicsLineItem):
 		self.text = ''
 		self.textItem = None
 		self.textOffset = 5
+		self.backDropMargin = 3
+		self._backdropItem = None
 		self.detectDirection()
 
 	def setLine(self, *args, **kwargs):
@@ -389,8 +442,27 @@ class DivisionLine(QGraphicsLineItem):
 
 	def setColor(self, color):
 		self.setPen(QPen(color))
-		if self.text:
-			self.text.setBrush(QBrush(color))
+		if self.textItem:
+			self.textItem.setBrush(QBrush(color))
+
+	def setBackdrop(self, color=None):
+		if self._backdropItem is not None:
+			self._backdropItem.scene().removeItem(self._backdropItem)
+			del self._backdropItem
+
+		if self.textItem:
+			rect = self.marginRect(self.mapFromScene(self.textItem.sceneBoundingRect()).boundingRect())
+		else:
+			rect = QRectF(0, 0, 0, 0)
+
+		self._backdropItem = QGraphicsRectItem(rect, parent=self)
+		self._backdropItem.setZValue(-1)
+		self._backdropItem.setPen(Qt.NoPen)
+		self._backdropItem.setBrush(QBrush(color))
+
+		if not self.textItem:
+			self._backdropItem.setVisible(False)
+
 
 	def setText(self, text):
 		if self.textItem is not None:
@@ -398,23 +470,31 @@ class DivisionLine(QGraphicsLineItem):
 			del self.textItem
 
 		if text:
-			self.text = QGraphicsSimpleTextItem(text, parent=self)
-			self.text.setBrush(QBrush(self.pen().color()))
+			self.textItem = QGraphicsSimpleTextItem(text, parent=self)
+			self.textItem.setBrush(QBrush(self.pen().color()))
 			self.setTextAlignment(Qt.AlignCenter)
+			if self._backdropItem:
+				rect = self.marginRect(self.mapFromScene(self.textItem.sceneBoundingRect()).boundingRect())
+				self._backdropItem.setRect(rect)
+				self._backdropItem.setVisible(True)
 		else:
-			self.text = None
+			if self._backdropItem:
+				self._backdropItem.setVisible(False)
+			self.textItem = None
+
+		self.text = text
 
 	def setTextAlignment(self, align):
-		rect = self.text.sceneBoundingRect()
+		rect = self.textItem.sceneBoundingRect()
 		if align == Qt.AlignCenter:
 			if self.direction == self.HORIZONTAL:
-				self.text.setPos(-(rect.width() + self.textOffset) + self.line().x1(), -rect.height() / 2.0)
+				self.textItem.setPos(-(rect.width() + self.textOffset) + self.line().x1(), -rect.height() / 2.0)
 			else:
-				self.text.setPos(-rect.width() / 2.0, self.line().y1() + self.textOffset)
+				self.textItem.setPos(-rect.width() / 2.0, self.line().y1() + self.textOffset)
 
 	def fontMetrics(self):
-		if self.text:
-			return QFontMetrics(self.text.font())
+		if self.textItem:
+			return QFontMetrics(self.textItem.font())
 
 	def detectDirection(self):
 		a = abs(self.line().angle())
@@ -431,6 +511,9 @@ class DivisionLine(QGraphicsLineItem):
 
 		self.setGraphicsEffect(drop)
 
+	def marginRect(self, rect):
+		m = self.backDropMargin
+		return rect.adjusted(-m, -m, m, m)
 
 
 

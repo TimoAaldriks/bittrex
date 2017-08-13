@@ -17,7 +17,41 @@ except ImportError:
 import secrets
 
 __version__ = 'v1.1'
+__version2__ = 'v2.0'
+
 BASE = 'https://bittrex.com/api/{version}/{group}/{request_type}'
+BASE_2 = 'https://bittrex.com/api/{version}/{domain}/{group}/{method}'
+
+# domain = ['pub', 'auth']
+# group = ['currencies', 'markets', 'market', 'orders']
+
+"""
+{	'pub': ['currencies', 'currency', 'markets', 'market'],
+	'auth': ['orders', 'market']
+}
+
+Endpoints:
+https://socket.bittrex.com/signalr/ping[?_=timestamp (int)]
+https://bittrex.com/Content/version.txt
+https://bittrex.com/Api/v2.0/pub/currencies/GetBTCPrice
+https://bittrex.com/api/v2.0/pub/Markets/GetMarketSummaries[?_=timestamp (int)]
+https://bittrex.com/Api/v2.0/pub/market/GetMarketSummary?marketName=BTC-ETH[?_=timestamp (int)]
+
+https://bittrex.com/Api/v2.0/pub/market/GetTicks?marketName=BTC-CVC&tickInterval=thirtyMin[?_=timestamp (int)]
+	Options: ["oneMin", "fiveMin", "thirtyMin", "hour", "day"]
+
+https://bittrex.com/Api/v2.0/pub/market/GetLatestTick?marketName=BTC-CVC&tickInterval=thirtyMin[?_=timestamp (int)]
+	Options: ["oneMin", "fiveMin", "thirtyMin", "hour", "day"]
+
+https://bittrex.com/Api/v2.0/auth/orders/GetOrderHistory with data { __RequestVerificationToken:"HIDDEN_FOR_PRIVACY" }
+https://bittrex.com/api/v2.0/auth/market/TradeBuy with data { MarketName: "BTC-DGB, OrderType:"LIMIT", Quantity: 10000.02, Rate: 0.0000004, TimeInEffect:"GOOD_TIL_CANCELED", ConditionType: "NONE", Target: 0, __RequestVerificationToken: "HIDDEN_FOR_PRIVACY"}
+https://bittrex.com/api/v2.0/auth/market/TradeSell with data { MarketName: "BTC-DGB, OrderType:"LIMIT", Quantity: 10000.02, Rate: 0.0000004, TimeInEffect:"GOOD_TIL_CANCELED", ConditionType: "NONE", Target: 0, __RequestVerificationToken: "HIDDEN_FOR_PRIVACY"}
+https://bittrex.com/api/v2.0/auth/market/TradeCancel with data { MarketName: "BTC-DGB", orderId:"HIDDEN_FOR_PRIVACY", `__RequestVerificationToken:"HIDDEN_FOR_PRIVACY"}
+https://bittrex.com/api/v2.0/pub/Currency/GetCurrencyInfo with data : { currencyName: "CVC", __RequestVerificationToken: "HIDDEN_FOR_PRIVACY"}
+
+"""
+
+
 
 ACCOUNT = [	'getbalance',
 			'getbalances',
@@ -112,6 +146,34 @@ class Bittrex(object):
 
 		return data['result']
 
+	def get2(self, domain, group, method, **kwargs):
+		parameters = self.check_parameters(kwargs, group)
+
+		if parameters:
+			parameters = '?' + parameters
+
+		url = BASE_2.format(version=__version2__,
+							domain=domain,
+							group=group,
+							method=method) + parameters
+
+		print('GET %s' % url)
+
+		r = requests.get(url,
+			headers={"apisign": hmac.new(self.secret.encode(),
+									url.encode(),
+									hashlib.sha512).hexdigest()})
+
+		if not r.status_code == 200:
+			raise RequestError(r.status_code, url)
+
+		data = r.json()
+		if not data['success']:
+			raise ResponseError(url, data['message'])
+
+		return data['result']
+
+
 	def check_parameters(self, parameters, request_type):
 		"""Verify the parameters, raise error if incorrect"""
 		return urlencode(parameters)
@@ -192,12 +254,54 @@ class Bittrex(object):
 	def timestamp_to_datetime(self, timestamp):
 		return datetime.datetime.strptime(timestamp.split('.')[0], '%Y-%m-%dT%H:%M:%S')
 
+	def GetBTCPrice(self):
+		return self.get2('pub', 'currencies', 'GetBTCPrice')
+
+	def GetTicks(self, marketName, tickInterval, timeStamp=None, convertDatetime=False):
+		# 	Options: ["oneMin", "fiveMin", "thirtyMin", "hour", "day"]
+
+		translation = {	'BV': 'BaseVolume',
+						'C': 'Close',
+						'H': 'High',
+						'L': 'Low',
+						'O': 'Open',
+						'T': 'TimeStamp',
+						'V': 'Volume'}
+
+		if timeStamp is None:
+			timeStamp = int(time.time() * 1000)
+
+		data = self.get2('pub', 'market', 'GetTicks',
+						marketName=marketName, tickInterval=tickInterval, _=str(timeStamp))
+
+		for d in data:
+			if convertDatetime:
+				d['T'] = self.timestamp_to_datetime(d['T'])
+			for k, v in translation.items():
+				d[v] = d.pop(k)
 
 
+		return data
 
 
+if __name__ == '__main__':
+	b = Bittrex()
+	pprint(b.GetTicks('BTC-NEO', 'day'))
 
-
+			# "MarketName" : "BTC-888",
+			# "High" : 0.00000919,
+			# "Low" : 0.00000820,
+			# "Volume" : 74339.61396015,
+			# "Last" : 0.00000820,
+			# "BaseVolume" : 0.64966963,
+			# "TimeStamp" : "2014-07-09T07:19:30.15",
+			# "Bid" : 0.00000820,
+			# "Ask" : 0.00000831,
+			# "OpenBuyOrders" : 15,
+			# "OpenSellOrders" : 15,
+			# "PrevDay" : 0.00000821,
+			# "Created" : "2014-03-20T06:00:00",
+			# "DisplayMarketName" : null
 
 
 
